@@ -1,0 +1,217 @@
+import random
+import time
+import threading
+import tkinter as tk
+from tkinter import scrolledtext, ttk
+from abc import ABC, abstractmethod
+import pygame
+import datetime
+
+
+# === Sensor Interface ===
+class Sensor(ABC):
+    @abstractmethod
+    def detect(self):
+        pass
+
+
+# === Motion Sensor ===
+class MotionSensor(Sensor):
+    def __init__(self, sensitivity=5):
+        self.__sensitivity = sensitivity
+
+    def detect(self):
+        return random.randint(1, 10) <= self.__sensitivity
+
+
+# === Temperature Sensor ===
+class TemperatureSensor(Sensor):
+    def __init__(self, threshold=35):
+        self.__threshold = threshold
+
+    def detect(self):
+        temp = random.randint(28, 40)
+        return temp >= self.__threshold
+
+
+# === Alarm Class ===
+class Alarm:
+    def __init__(self):
+        self.__triggered = False
+
+    def trigger(self):
+        self.__triggered = True
+
+    def reset(self):
+        self.__triggered = False
+
+    def is_triggered(self):
+        return self.__triggered
+
+
+# === Utility Functions ===
+def log_event(message):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"[{timestamp}] {message}\n"
+    with open("motion_log.txt", "a") as file:
+        file.write(log_line)
+    return log_line
+
+
+def play_alarm_sound(sound_file="alarm.wav"):
+    try:
+        pygame.mixer.init()
+        pygame.mixer.music.load(sound_file)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+    except Exception as e:
+        log_event(f"Error playing alarm sound: {e}")
+
+
+# === Main GUI Class ===
+class MotionDetectionSystemGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("🚨 Motion Detection Alarm System")
+        self.root.geometry("700x500")
+        self.root.configure(bg="#1e1e1e")
+        self.running = False
+        self.current_sensor = None
+        self.alarm = Alarm()
+        self.theme = "dark"
+
+        self.build_gui()
+        self.update_clock()
+
+    def build_gui(self):
+        # === Header ===
+        header = tk.Label(self.root, text="Motion Detection Alarm System",
+                          font=("Arial", 22, "bold"), bg="#1e1e1e", fg="#ffffff")
+        header.pack(pady=10)
+
+        # === Top Status Frame ===
+        top_frame = tk.Frame(self.root, bg="#2c2c2c", padx=10, pady=10)
+        top_frame.pack(fill="x", padx=20)
+
+        self.status_label = tk.Label(top_frame, text="System Idle", font=("Arial", 16),
+                                     fg="gray", bg="#2c2c2c")
+        self.status_label.pack(side="left")
+
+        self.clock_label = tk.Label(top_frame, font=("Arial", 12), bg="#2c2c2c", fg="#bbbbbb")
+        self.clock_label.pack(side="right")
+
+        # === Control Buttons ===
+        controls = tk.Frame(self.root, bg="#1e1e1e")
+        controls.pack(pady=10)
+
+        self.toggle_btn = tk.Button(controls, text="▶ Start", font=("Arial", 12),
+                                    bg="#4caf50", fg="white", width=12, command=self.toggle_system)
+        self.toggle_btn.grid(row=0, column=0, padx=10)
+
+        self.quit_btn = tk.Button(controls, text="⏹ Exit", font=("Arial", 12),
+                                  bg="#f44336", fg="white", width=12, command=self.exit_app)
+        self.quit_btn.grid(row=0, column=1, padx=10)
+
+        self.theme_btn = tk.Button(controls, text="🌓 Toggle Theme", font=("Arial", 12),
+                                   bg="#607d8b", fg="white", width=15, command=self.toggle_theme)
+        self.theme_btn.grid(row=0, column=2, padx=10)
+
+        # === Sensor Selector ===
+        selector_frame = tk.Frame(self.root, bg="#1e1e1e")
+        selector_frame.pack(pady=5)
+
+        tk.Label(selector_frame, text="Select Sensor:", font=("Arial", 12),
+                 bg="#1e1e1e", fg="white").pack(side="left", padx=5)
+
+        self.sensor_var = tk.StringVar()
+        self.sensor_dropdown = ttk.Combobox(selector_frame, textvariable=self.sensor_var,
+                                            values=["Motion Sensor", "Temperature Sensor"],
+                                            state="readonly", width=20)
+        self.sensor_dropdown.pack(side="left", padx=5)
+        self.sensor_dropdown.current(0)
+
+        # === Log Display ===
+        log_label = tk.Label(self.root, text="Activity Log", font=("Arial", 12, "bold"),
+                             bg="#1e1e1e", fg="white")
+        log_label.pack()
+
+        self.log_box = scrolledtext.ScrolledText(self.root, height=10, width=80,
+                                                 font=("Courier", 10), state="disabled", bg="#000", fg="#0f0")
+        self.log_box.pack(pady=5)
+
+    def toggle_system(self):
+        self.running = not self.running
+        if self.running:
+            self.toggle_btn.config(text="⏹ Stop", bg="#ff9800")
+            self.update_status("System Running...", "blue")
+            self.append_log(log_event("System started."))
+            self.initialize_sensor()
+            threading.Thread(target=self.run_detection_loop, daemon=True).start()
+        else:
+            self.toggle_btn.config(text="▶ Start", bg="#4caf50")
+            self.update_status("System Stopped", "gray")
+            self.append_log(log_event("System stopped."))
+
+    def initialize_sensor(self):
+        sensor_choice = self.sensor_var.get()
+        if sensor_choice == "Motion Sensor":
+            self.current_sensor = MotionSensor(sensitivity=4)
+        elif sensor_choice == "Temperature Sensor":
+            self.current_sensor = TemperatureSensor(threshold=35)
+
+    def update_status(self, text, color):
+        self.status_label.config(text=text, fg=color)
+
+    def append_log(self, log_line):
+        self.log_box.config(state="normal")
+        self.log_box.insert("end", log_line)
+        self.log_box.see("end")
+        self.log_box.config(state="disabled")
+
+    def update_clock(self):
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.clock_label.config(text=now)
+        self.root.after(1000, self.update_clock)
+
+    def toggle_theme(self):
+        if self.theme == "dark":
+            self.root.configure(bg="#ffffff")
+            self.status_label.config(bg="#e0e0e0", fg="black")
+            self.log_box.config(bg="white", fg="black")
+            self.theme = "light"
+        else:
+            self.root.configure(bg="#1e1e1e")
+            self.status_label.config(bg="#2c2c2c", fg="white")
+            self.log_box.config(bg="black", fg="#0f0")
+            self.theme = "dark"
+
+    def run_detection_loop(self):
+        while self.running:
+            if self.current_sensor and self.current_sensor.detect():
+                self.alarm.trigger()
+                self.update_status("🚨 Motion Detected!", "red")
+                self.append_log(log_event("Motion detected!"))
+                play_alarm_sound("alarm.wav")
+            else:
+                self.update_status("No Motion", "green")
+                self.append_log(log_event("No motion."))
+
+            time.sleep(2)
+
+            if self.alarm.is_triggered():
+                self.alarm.reset()
+
+    def exit_app(self):
+        self.running = False
+        self.append_log(log_event("System exited by user."))
+        self.root.quit()
+
+
+# === Main Runner ===
+if __name__ == "__main__":
+    pygame.init()
+    root = tk.Tk()
+    app = MotionDetectionSystemGUI(root)
+    root.mainloop()
+
